@@ -27,3 +27,6 @@ cat <<EOT > ./servers.json
     }
 }
 EOT
+
+docker-compose up -d;
+docker-compose down;
