@@ -1,0 +1,90 @@
+version: "3.8"
+
+services:
+  postgres:
+    image: elestio/postgres:16
+    restart: always
+    ports:
+      - 172.17.0.1:21687:5432
+    volumes:
+      - ./postgres-data:/var/lib/postgresql/data
+    environment:
+      - PGDATA=/var/lib/postgresql/data/pgdata
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_POSTGRES_DB=${POSTGRES_POSTGRES_DB}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  skyvern:
+    image: public.ecr.aws/skyvern/skyvern:${SOFTWARE_VERSION_TAG}
+    restart: always
+    # comment out if you want to externally call skyvern API
+    ports:
+      - 172.17.0.1:16457:8000
+    volumes:
+      - ./artifacts:/data/artifacts
+      - ./videos:/data/videos
+      - ./har:/data/har
+      - ./log:/data/log
+      - ./.streamlit:/app/.streamlit
+    environment:
+      - DATABASE_STRING=postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_POSTGRES_DB}
+      - BROWSER_TYPE=chromium-headful
+      - ENABLE_OPENAI=true
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      # If you want to use other LLM provider, like azure and anthropic:
+      # - ENABLE_ANTHROPIC=true
+      # - LLM_KEY=ANTHROPIC_CLAUDE3_OPUS
+      # - ANTHROPIC_API_KEY=<your_anthropic_key>
+      # - ENABLE_AZURE=true
+      # - LLM_KEY=AZURE_OPENAI
+      # - AZURE_DEPLOYMENT=<your_azure_deployment>
+      # - AZURE_API_KEY=<your_azure_api_key>
+      # - AZURE_API_BASE=<your_azure_api_base>
+      # - AZURE_API_VERSION=<your_azure_api_version>
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "test", "-f", "/app/.streamlit/secrets.toml"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  skyvern-ui:
+    image: public.ecr.aws/skyvern/skyvern-ui:${SOFTWARE_VERSION_TAG}
+    restart: always
+    ports:
+      - 172.17.0.1:11415:8080
+      - 172.17.0.1:54836:9090
+    volumes:
+      - ./artifacts:/data/artifacts
+      - ./videos:/data/videos
+      - ./har:/data/har
+      - ./.streamlit:/app/.streamlit
+    environment:
+      # if you want to run skyvern on a remote server,
+      # you need to change the host in VITE_WSS_BASE_URL and VITE_API_BASE_URL to match your server ip
+      - VITE_WSS_BASE_URL=wss://${DOMAIN}:60284/api/v1
+      - VITE_API_BASE_URL=https://${DOMAIN}:60284/api/v1
+      - VITE_ARTIFACT_API_BASE_URL=https://${DOMAIN}:33615
+      - VITE_SKYVERN_API_KEY=${VITE_SKYVERN_API_KEY}
+    depends_on:
+      skyvern:
+        condition: service_healthy
+
+  pgadmin4:
+    image: elestio/pgadmin:latest
+    restart: always
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${ADMIN_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${ADMIN_PASSWORD}
+      PGADMIN_LISTEN_PORT: 8080
+    ports:
+      - "172.17.0.1:45241:8080"
+    volumes:
+      - ./servers.json:/pgadmin4/servers.json
